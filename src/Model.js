@@ -122,6 +122,16 @@ export default class Model {
         return `${result(this, 'urlRoot')}${id ? `${id}/` : ''}`;
     }
 
+    getEncodedFile(file){
+        // get the resource name from path
+        const id = this[this.constructor.primaryKey];
+
+        if(this.fileFields().includes(file) && id){
+            return `${result(this, 'urlRoot')}${id ? `${id}/` : ''}${file}/?encode=true`;
+        }
+        return '';
+    }
+
     @computed
     get isNew() {
         return !this[this.constructor.primaryKey];
@@ -612,6 +622,12 @@ export default class Model {
         }
         return value;
     }
+    
+    uuidv4() {
+        return ([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g, c =>
+          (c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c / 4).toString(16)
+        );
+      }
 
     saveFile(name) {
         const snakeName = camelToSnake(name);
@@ -619,8 +635,18 @@ export default class Model {
         if (this.__fileChanges[name]) {
             const file = this.__fileChanges[name];
 
+            // debugger;
+
             const data = new FormData();
-            data.append(name, file, file.name);
+
+            if(this.isBase64(file)){
+                const newfile = this.dataURItoBlob(file);
+                // file = `${URL.createObjectURL(blob)}`;
+                const fname = `${this.uuidv4()}.png`;
+                data.append(name, newfile, fname );
+            } else{
+                data.append(name, file, file.name);
+            }
 
             return (
                 this.api.post(
@@ -700,6 +726,29 @@ export default class Model {
         );
     }
 
+    isBase64(str) {
+        if( typeof str === 'object' || str === undefined || str === null){ return false;}
+        if (str ==='' || str.trim() ===''){ return false; }
+        str = str.replace(/^[^,]+,/, '');
+        try {
+            return btoa(atob(str)) === atob(btoa(str));
+        } catch (err) {
+            return false;
+        }
+    }
+
+    dataURItoBlob(dataURI) {
+        var mime = dataURI.split(',')[0].split(':')[1].split(';')[0];
+        var binary = atob(dataURI.split(',')[1]);
+        var array = [];
+        for (var i = 0; i < binary.length; i++) {
+           array.push(binary.charCodeAt(i));
+        }
+        return new Blob([new Uint8Array(array)], {type: mime});
+      }
+      
+    
+
     @action
     setInput(name, value) {
         invariant(
@@ -707,6 +756,8 @@ export default class Model {
                 this.__activeCurrentRelations.includes(name),
             `Field \`${name}\` does not exist on the model.`
         );
+        this.isBase64File = false;
+
         if (this.fileFields().includes(name)) {
             if (this.__fileExists[name] === undefined) {
                 this.__fileExists[name] = this[name] !== null;
@@ -715,7 +766,16 @@ export default class Model {
                 this.__fileChanges[name] = value;
                 delete this.__fileDeletions[name];
 
-                value = `${URL.createObjectURL(value)}?content_type=${value.type}`;
+                // console.log('value!', this.isBase64(value));
+                this.isBase64File = this.isBase64(value);    
+
+                if(!this.isBase64File){
+                    value = `${URL.createObjectURL(value)}?content_type=${value.type}`;
+                }
+                else {
+                    var blob = this.dataURItoBlob(value);
+                    value = `${URL.createObjectURL(blob)}`;
+                }
             } else {
                 if (!this.__fileChanges[name] || this.__fileChanges[name].existed) {
                     this.__fileDeletions[name] = true;
