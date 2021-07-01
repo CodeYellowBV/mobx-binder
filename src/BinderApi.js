@@ -1,4 +1,4 @@
-import { get } from 'lodash';
+import { get, range } from 'lodash';
 import axios from 'axios';
 
 // Function ripped from Django docs.
@@ -6,6 +6,30 @@ import axios from 'axios';
 function csrfSafeMethod(method) {
     // These HTTP methods do not require CSRF protection.
     return /^(GET|HEAD|OPTIONS|TRACE)$/i.test(method);
+}
+
+function escapeKey(key) {
+    return key.toString().replace(/([.\\])/g, '\\$1');
+}
+
+function extractFiles(data, prefix = '') {
+    const keys = (
+        Array.isArray(data)
+        ? range(data.length)
+        : typeof data === 'object' && data !== null
+        ? Object.keys(data)
+        : []
+    );
+    let files = {};
+    for (const key of keys) {
+        if (data[key] instanceof Blob) {
+            files[prefix + escapeKey(key)] = data[key];
+            data[key] = null;
+        } else if (typeof data[key] === 'object' && data[key] !== null) {
+            Object.assign(files, extractFiles(data[key], prefix + escapeKey(key) + '.'));
+        }
+    }
+    return files;
 }
 
 export default class BinderApi {
@@ -63,9 +87,25 @@ export default class BinderApi {
                 'X-Csrftoken': useCsrfToken,
             },
             this.defaultHeaders,
-            options.headers
+            options.headers,
         );
         axiosOptions.headers = headers;
+
+        if (
+            axiosOptions.data &&
+            !(axiosOptions.data instanceof Blob) &&
+            !(axiosOptions.data instanceof FormData)
+        ) {
+            const files = extractFiles(axiosOptions.data);
+            if (Object.keys(files).length > 0) {
+                const data = new FormData();
+                data.append('data', JSON.stringify(axiosOptions.data));
+                for (const [path, file] of Object.entries(files)) {
+                    data.append('file:' + path, file, file.name);
+                }
+                axiosOptions.data = data;
+            }
+        }
 
         const xhr = this.axios(axiosOptions);
 
