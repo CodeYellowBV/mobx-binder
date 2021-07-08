@@ -867,8 +867,9 @@ var Model = (_class$1 = (_temp$1 = _class2$1 = function () {
         }
 
         /**
-         * Gives the model the internal id. This is useful if you have a new model that you want to give an id so
-         * that it can be referred to in a relation.
+         * Gives the model the internal id, meaning that it will keep the set id of the model or it will receive a negative
+         * id if the id is null. This is useful if you have a new model that you want to give an id so that it can be
+         * referred to in a relation.
          */
 
     }, {
@@ -919,7 +920,7 @@ var Model = (_class$1 = (_temp$1 = _class2$1 = function () {
 
         /**
          * A model is considered new if it does not have an id, or if the id is a negative integer.
-         * @returns {boolean}   True if the model id is not set or a negative integer
+         * @returns {boolean}   - True if the model id is not set or a negative integer
          */
 
     }, {
@@ -991,6 +992,16 @@ var Model = (_class$1 = (_temp$1 = _class2$1 = function () {
         if (options.relations) {
             this.__parseRelations(options.relations);
         }
+
+        // The model will automatically be assigned a negative id, the id will still be overridden if it is supplied in the data
+        this.assignInternalId();
+
+        // We want our id to remain negative on a clear, only if it was not created with the id set to null
+        // which is usually the case when the object is a related model in which case we want the id to be reset to null
+        if (data && data[this.constructor.primaryKey] !== null || !data) {
+            this.__originalAttributes[this.constructor.primaryKey] = this[this.constructor.primaryKey];
+        }
+
         if (data) {
             this.parse(data);
         }
@@ -1039,7 +1050,10 @@ var Model = (_class$1 = (_temp$1 = _class2$1 = function () {
                 if (RelModel.prototype instanceof Store) {
                     return new RelModel(options);
                 }
-                return new RelModel(null, options);
+                // If we have a related model, we want to force the related model to have id null as that means there is no model set
+                var newModelData = {};
+                newModelData[RelModel.primaryKey] = null;
+                return new RelModel(newModelData, options);
             }));
         }
 
@@ -1904,7 +1918,13 @@ var Model = (_class$1 = (_temp$1 = _class2$1 = function () {
             var _this19 = this;
 
             forIn(this.__originalAttributes, function (value, key) {
-                _this19[key] = value;
+                // If it is our primary key, and the primary key is negative, we generate a new negative pk, else we set it
+                // to the value
+                if (key === _this19.constructor.primaryKey && value < 0) {
+                    _this19[key] = -1 * uniqueId();
+                } else {
+                    _this19[key] = value;
+                }
             });
 
             this.__activeCurrentRelations.forEach(function (currentRel) {
